@@ -130,7 +130,7 @@ async function verificarRecuperacao() {
 // ── CÃO DE GUARDA DE HÁBITOS ─────────────────────────────────────────────────
 const HABITOS_LIMITE = {
   normal:   { agua: 60,  alongar: 90  }, // minutos — estado bom
-  critico:  { agua: 120, alongar: 120 }, // minutos — estado crítico
+  critico:  { agua: 30, alongar: 45 }, // minutos — estado crítico
 };
 
 const ESTADOS_CRITICOS_HAB = ['EMERGÊNCIA', 'PANE TOTAL'];
@@ -229,7 +229,7 @@ function iniciarWatchdog() {
     verificarHabitos().catch(err => console.error('Watchdog hábitos erro:', err.message));
   });
 
-  console.log('Watchdog normal: ativo (10min, alerta 80min inatividade)');
+  console.log('Watchdog normal: ativo (10min, alerta 60min inatividade)');
   console.log('Watchdog recuperação: ativo (5min, 20min pós-Pane / 40min pós-Emergência)');
   console.log('Watchdog hábitos: ativo (10min, água 60min / alongar 90min / modulado por estado)');
 }
