@@ -9,6 +9,10 @@ const RECUPERACAO = {
   'EMERGÊNCIA': 40,
 };
 
+// Controle de alertas já enviados — evita spam a cada ciclo
+// Formato: { deviceId: timestampUltimoAlerta }
+const ultimoAlertaEnviado = {};
+
 function dentroDoHorario() {
   const agora = new Date();
   const horaBR = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
@@ -20,10 +24,7 @@ function dentroDoHorario() {
 }
 
 async function verificarTodos() {
-  if (!dentroDoHorario()) {
-    console.log('[Watchdog] Fora do horário, pulando.');
-    return;
-  }
+  if (!dentroDoHorario()) return;
 
   const agora = new Date();
   const { rows: subs } = await pool.query(
@@ -50,14 +51,21 @@ async function verificarTodos() {
     const minutosPassados = Math.round((agora - ultimo) / 60000);
     const ultimoEstado = rows[0].estado;
 
-    console.log(`[Watchdog] Device ${sub.device_id.slice(-8)}: ${minutosPassados}min desde último check-in (${ultimoEstado})`);
+    console.log(`[Watchdog] Device ${sub.device_id.slice(-8)}: ${minutosPassados}min (${ultimoEstado})`);
 
-    if (RECUPERACAO[ultimoEstado]) {
-      console.log(`[Watchdog] Device ${sub.device_id.slice(-8)}: estado crítico, cão de recuperação assume.`);
-      continue;
-    }
+    if (RECUPERACAO[ultimoEstado]) continue;
 
     if (minutosPassados >= LIMITE_MINUTOS) {
+      // Verifica se já enviou alerta desde o último check-in
+      const tsUltimoAlerta = ultimoAlertaEnviado[sub.device_id] || 0;
+      const tsUltimoCheckin = ultimo.getTime();
+
+      // Só envia se não enviou alerta depois do último check-in
+      if (tsUltimoAlerta > tsUltimoCheckin) {
+        console.log(`[Watchdog] Device ${sub.device_id.slice(-8)}: alerta já enviado, aguardando novo check-in.`);
+        continue;
+      }
+
       console.log(`[Watchdog] Enviando alerta para ${sub.device_id.slice(-8)}...`);
       const resultado = await enviarNotificacao(
         sub.subscription,
@@ -72,11 +80,16 @@ async function verificarTodos() {
           ]
         }
       );
-      console.log(`[Watchdog] Resultado envio: ${resultado}`);
 
-      if (resultado === 'expirada') {
-        console.log(`[Watchdog] Subscription expirada, removendo device ${sub.device_id.slice(-8)}`);
+      console.log(`[Watchdog] Resultado: ${resultado}`);
+
+      if (resultado === true) {
+        // Registra o momento do envio para não repetir
+        ultimoAlertaEnviado[sub.device_id] = agora.getTime();
+      } else if (resultado === 'expirada') {
+        console.log(`[Watchdog] Subscription expirada, removendo ${sub.device_id.slice(-8)}`);
         await pool.query('DELETE FROM push_subscriptions WHERE device_id = $1', [sub.device_id]);
+        delete ultimoAlertaEnviado[sub.device_id];
       }
     }
   }
@@ -132,6 +145,9 @@ async function verificarRecuperacao() {
   }
 }
 
+// Controle de alertas de hábitos — mesmo mecanismo anti-spam
+const ultimoAlertaHabito = {}; // { 'deviceId:tipo': timestamp }
+
 const HABITOS_LIMITE = {
   normal:  { agua: 60,  alongar: 90 },
   critico: { agua: 30,  alongar: 45 },
@@ -180,8 +196,11 @@ async function verificarHabitos() {
       if (!ultimoHabito) ultimoHabito = new Date(agora - 2 * 60 * 60 * 1000);
 
       const minutosDesde = Math.round((agora - ultimoHabito) / 60000);
+      const chaveAlerta = `${sub.device_id}:${tipo}`;
+      const tsUltimoAlerta = ultimoAlertaHabito[chaveAlerta] || 0;
 
-      if (minutosDesde >= limites[tipo]) {
+      // Só dispara se passou o limite E não enviou alerta depois do último registro
+      if (minutosDesde >= limites[tipo] && tsUltimoAlerta <= ultimoHabito.getTime()) {
         const titulo = isCritico
           ? (tipo === 'agua' ? '💧 Um cuidado pequeno' : '🧘 Um micro-respiro')
           : (tipo === 'agua' ? '💧 Lembrete de água' : '🧘 Pausa rápida para alongar');
@@ -196,7 +215,9 @@ async function verificarHabitos() {
           actions: [{ action: tipo, title: tipo === 'agua' ? '💧 Bebi agora' : '🧘 Fiz agora' }]
         });
 
-        if (resultado === 'expirada') {
+        if (resultado === true) {
+          ultimoAlertaHabito[chaveAlerta] = agora.getTime();
+        } else if (resultado === 'expirada') {
           await pool.query('DELETE FROM push_subscriptions WHERE device_id = $1', [sub.device_id]);
         }
       }
@@ -217,7 +238,7 @@ function iniciarWatchdog() {
     verificarHabitos().catch(err => console.error('Watchdog hábitos erro:', err.message));
   });
 
-  console.log('Watchdog normal: ativo (10min, alerta 60min inatividade)');
+  console.log('Watchdog normal: ativo (10min, alerta 60min — 1 alerta por ciclo)');
   console.log('Watchdog recuperação: ativo (5min, 20min pós-Pane / 40min pós-Emergência)');
   console.log('Watchdog hábitos: ativo (crítico: água 30min / alongar 45min | normal: 60min / 90min)');
 }
