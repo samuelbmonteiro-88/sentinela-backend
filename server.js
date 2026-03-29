@@ -163,6 +163,25 @@ app.get('/habitos/semana/:deviceId', async (req, res) => {
   res.json(rows);
 });
 
+// ── MODO TRABALHO ────────────────────────────────────────────────────────────
+app.post('/modo', async (req, res) => {
+  const { deviceId, modo } = req.body;
+  if (!deviceId || !modo) return res.status(400).json({ erro: 'dados incompletos' });
+  await pool.query(`
+    INSERT INTO modos (device_id, modo, atualizado_em)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (device_id) DO UPDATE SET modo = $2, atualizado_em = NOW()
+  `, [deviceId, modo]);
+  res.json({ ok: true });
+});
+
+app.get('/modo/:deviceId', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT modo FROM modos WHERE device_id = $1', [req.params.deviceId]
+  );
+  res.json({ modo: rows[0]?.modo || 'trabalho' });
+});
+
 // ── SONECA (+20min na notificação) ────────────────────────────────────────────
 app.post('/soneca', async (req, res) => {
   const { deviceId } = req.body;
