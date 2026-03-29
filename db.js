@@ -56,12 +56,19 @@ async function iniciarDB() {
 
     CREATE INDEX IF NOT EXISTS idx_habitos_device_criado
       ON habitos(device_id, criado_em DESC);
+
+    CREATE TABLE IF NOT EXISTS modo_trabalho (
+      device_id TEXT PRIMARY KEY,
+      modo TEXT NOT NULL DEFAULT 'trabalho',
+      atualizado_em TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
-  // Colunas de hábitos no checkin (ALTER separado para não falhar se já existirem)
+  // Colunas de hábitos no checkin
   await pool.query('ALTER TABLE checkins ADD COLUMN IF NOT EXISTS bebi_agua BOOLEAN DEFAULT NULL');
   await pool.query('ALTER TABLE checkins ADD COLUMN IF NOT EXISTS alonguei BOOLEAN DEFAULT NULL');
   await pool.query('ALTER TABLE checkins ADD COLUMN IF NOT EXISTS fez_pausa BOOLEAN DEFAULT NULL');
+
   console.log('DB: tabelas prontas');
 }
 
