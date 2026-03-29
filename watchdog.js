@@ -55,6 +55,17 @@ async function verificarTodos() {
 
     if (RECUPERACAO[ultimoEstado]) continue;
 
+    // Verifica modo trabalho — não alerta se estiver fora
+    const { rows: modoRows } = await pool.query(
+      'SELECT modo FROM modo_trabalho WHERE device_id = $1',
+      [sub.device_id]
+    );
+    const modo = modoRows[0]?.modo || 'trabalho';
+    if (modo === 'fora') {
+      console.log(`[Watchdog] Device ${sub.device_id.slice(-8)}: fora do trabalho, pulando.`);
+      continue;
+    }
+
     if (minutosPassados >= LIMITE_MINUTOS) {
       // Verifica se já enviou alerta desde o último check-in
       const tsUltimoAlerta = ultimoAlertaEnviado[sub.device_id] || 0;
